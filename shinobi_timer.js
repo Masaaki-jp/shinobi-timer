@@ -1,53 +1,64 @@
 /**
- * 住所の日の出・日の入り時刻をGoogleカレンダーに登録します。
+ * 忍の日の出・日の入り同期スクリプト (Shinobi Sun Sync)
+ * 座標: あなたの住所
  */
-function registerSunTimes() { 
-  // --- 設定項目 ---
-  // あなたの住所付近の座標（緯度・経度）を入力してください
-  const LAT = '';  // 例: '35.5812'
-  const LNG = '';  // 例: '139.6598'
-  const CALENDAR_ID = 'primary';
-  // ----------------
+function registerSunTimes() {
+  const CONFIG = {
+    LAT: '', /*ここにあなたの住所を入力*/
+    LNG: '', /*ここにあなたの住所を入力*/
+    CALENDAR_ID: 'primary',
+    TIMEZONE: 'Asia/Tokyo',
+    TITLES: {
+      SUNRISE: '☀Sunrise',
+      SUNSET: 'ーSunset'
+    }
+  };
 
-  const today = new Date();
-  const dateStr = Utilities.formatDate(today, 'GMT', 'yyyy-MM-dd');
+  // 1. 日本時間での「今日」を取得
+  const now = new Date();
+  const dateStr = Utilities.formatDate(now, CONFIG.TIMEZONE, 'yyyy-MM-dd');
   
-  // APIからデータを取得（formatted=0 でISO 8601形式を指定）
-  const url = `https://api.sunrise-sunset.org/json?lat=${LAT}&lng=${LNG}&date=${dateStr}&formatted=0`;
+  // 2. APIからデータを取得
+  const url = `https://api.sunrise-sunset.org/json?lat=${CONFIG.LAT}&lng=${CONFIG.LNG}&date=${dateStr}&formatted=0`;
   
   try {
     const response = UrlFetchApp.fetch(url);
     const json = JSON.parse(response.getContentText());
     
-    if (json.status === 'OK') {
-      const sunrise = new Date(json.results.sunrise);
-      const sunset = new Date(json.results.sunset);
-      
-      const calendar = CalendarApp.getCalendarById(CALENDAR_ID);
-      
-      // 重複登録を避けるため、作成するタイトルと同じ言葉で検索します
-      const existingEvents = calendar.getEventsForDay(today, {search: '☀Sunrise'});
-      
-      if (existingEvents.length === 0) {
-        const sunriseEnd = new Date(sunrise.getTime() + 60 * 1000);
-        const sunsetEnd = new Date(sunset.getTime() + 60 * 1000);
-        
-        calendar.createEvent('☀Sunrise', sunrise, sunriseEnd);
-        calendar.createEvent('ーSunset', sunset, sunsetEnd);
-        
-        console.log(`登録完了: 日の出 ${formatTime(sunrise)} / 日の入り ${formatTime(sunset)}`);
-      } else {
-        console.log('本日の時刻は既に登録されています。');
+    if (json.status !== 'OK') throw new Error('APIのレスポンスが異常です');
+
+    // APIのUTC時刻をJSのDateオブジェクトに変換（自動でローカル時刻になる）
+    const sunrise = new Date(json.results.sunrise);
+    const sunset = new Date(json.results.sunset);
+    
+    const calendar = CalendarApp.getCalendarById(CONFIG.CALENDAR_ID);
+    
+    // 3. 重複防止：その日の既存イベントを検索して削除（掃除）
+    const existingEvents = calendar.getEventsForDay(now);
+    existingEvents.forEach(event => {
+      const title = event.getTitle();
+      if (title === CONFIG.TITLES.SUNRISE || title === CONFIG.TITLES.SUNSET) {
+        event.deleteEvent();
       }
-    }
+    });
+
+    // 4. 新規登録
+    const sunriseEnd = new Date(sunrise.getTime() + 60 * 1000); // 1分間のイベント
+    const sunsetEnd = new Date(sunset.getTime() + 60 * 1000);
+    
+    calendar.createEvent(CONFIG.TITLES.SUNRISE, sunrise, sunriseEnd);
+    calendar.createEvent(CONFIG.TITLES.SUNSET, sunset, sunsetEnd);
+    
+    console.log(`[${dateStr}] 登録完了: 日の出 ${formatTime(sunrise)} / 日の入り ${formatTime(sunset)}`);
+
   } catch (e) {
     console.error('エラーが発生しました: ' + e.message);
   }
 }
 
 /**
- * 時刻を HH:mm 形式にフォーマットする補助関数
+ * 日本時間の HH:mm 形式に変換
  */
 function formatTime(date) {
-  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'HH:mm');
+  return Utilities.formatDate(date, 'Asia/Tokyo', 'HH:mm');
 }
